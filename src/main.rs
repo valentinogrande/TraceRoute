@@ -2,6 +2,7 @@ use etherparse::{Ipv4Header, Ipv4HeaderSlice, TcpHeader, TcpHeaderSlice};
 use regex::Regex;
 use std::{net::Ipv4Addr, process::Command};
 use tun_tap::Iface;
+use std::net::ToSocketAddrs;
 
 pub fn set_interface() -> Result<Iface, std::io::Error> {
     let interface = Iface::new("tun0", tun_tap::Mode::Tap)?;
@@ -42,24 +43,17 @@ fn main() {
 
     let url = "google.com";
 
-    let ping = Command::new("ping")
-        .arg("-c")
-        .arg("1")
-        .arg(url)
-        .output()
+    let ip = (url, 80)
+        .to_socket_addrs()
+        .unwrap()
+        .find(|a| a.is_ipv4())
         .unwrap();
 
-    let stdout = String::from_utf8_lossy(&ping.stdout);
+    let destination = match ip {
+        std::net::SocketAddr::V4(addr) => addr.ip().octets(),
+        _ => panic!("Invalid IPv4 address"),
+    };
 
-    let re = Regex::new(r"\((\d{1,3}(?:\.\d{1,3}){3})\)").unwrap();
-
-    let mut ip = String::new();
-    if let Some(caps) = re.captures(&stdout) {
-        ip = caps[1].to_string();
-        println!("{}", ip);
-    }
-
-    let destination: Ipv4Addr = ip.parse().unwrap();
     let source: Ipv4Addr = "10.0.0.1".parse().unwrap();
 
     let protocol = etherparse::IpNumber::UDP;
@@ -71,7 +65,7 @@ fn main() {
         time_to_live,
         total_len as u8,
         protocol,
-        destination.octets(),
+        destination,
         source.octets(),
     );
 
