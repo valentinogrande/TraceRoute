@@ -13,6 +13,10 @@ fn main() -> std::io::Result<()> {
 
     let icmp_socket = unsafe { libc::socket(libc::AF_INET, libc::SOCK_RAW, libc::IPPROTO_ICMP) };
 
+    if icmp_socket < 0 {
+        panic!("CAP_NET_RAW Not found or Not executed as root user");
+    }
+
     let timeout = libc::timeval {
         tv_sec: 1,
         tv_usec: 0,
@@ -30,7 +34,11 @@ fn main() -> std::io::Result<()> {
         )
     };
 
-    let mut buf: [u8; 10] = [0; 10];
+    if ret < 0 {
+        panic!("Error updating timeout for socket");
+    }
+
+    let buf: [u8; 10] = [0; 10];
 
     let mut idx = 0;
 
@@ -48,6 +56,11 @@ fn main() -> std::io::Result<()> {
 
     loop {
         idx += 1;
+
+        if idx >= 30 {
+            break;
+        }
+
         socket.set_ttl(idx)?;
 
         socket
@@ -68,7 +81,8 @@ fn main() -> std::io::Result<()> {
         };
 
         if icmp_bytes < 0 {
-            break;
+            //println!("*");
+            continue;
         }
 
         let delay = (Instant::now() - now).as_millis();
@@ -76,19 +90,11 @@ fn main() -> std::io::Result<()> {
         let packet =
             etherparse::SlicedPacket::from_ip(&rec_buff[..icmp_bytes as usize]).expect("Error");
 
-        let router_ip = packet
-            .net
-            .unwrap()
-            .ipv4_ref()
-            .unwrap()
-            .header()
-            .source_addr();
+        let net = packet.net.unwrap();
+
+        let router_ip = net.ipv4_ref().unwrap().header().source_addr();
 
         println!("[*] ROUTER IP: {router_ip} TOTAL DELAY: {delay}ms");
-
-        if idx == 30 {
-            break;
-        }
     }
 
     unsafe { libc::close(icmp_socket) };
